@@ -1,0 +1,81 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  VERILATOR_V: '4.106'
+  COSMOCC_V: '4.0.2'
+
+jobs:
+  
+  amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build
+        run: |
+          echo $VERILATOR_V > verilator.ver
+          echo $COSMOCC_V > cosmocc.ver
+          sudo apt update -qq
+          sudo apt install -qq -y flex bison autoconf make libfl-dev
+          bash build.sh
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: verilator-amd64
+          path: |
+            verilator_bin
+            verilator
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
+  arm64:
+    runs-on: mac-mini-m1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build
+        run: |
+          echo $VERILATOR_V > verilator.ver
+          echo $COSMOCC_V > cosmocc.ver
+          mkdir build
+          chmod 777 build
+          cp build.sh *.ver build
+          docker run --platform=linux/arm64/v8 --rm -t -v `pwd`/build:/opt/workspace arm64v8/ubuntu bash -c "export DEBIAN_FRONTEND=noninteractive && apt update -qq && apt install -qq -y sudo wget curl unzip git flex bison autoconf make libfl-dev && cd /opt/workspace && bash build.sh"
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: verilator-arm64
+          path: |
+            build/verilator_bin
+            build/verilator
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
+  universal:
+    needs: [ amd64, arm64 ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+      - name: Link
+        run: |
+          bash link.sh
+      - name: Upload
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_name: sireum/rolling
+          repo_token: ${{ secrets.RELEASE_TOKEN }}
+          file: verilator.zip
+          asset_name: verilator-${{ env.VERILATOR_V }}-cosmo-${{ env.COSMOCC_V }}.zip
+          tag: misc
+          overwrite: true
